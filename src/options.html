@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Page Translator 设置</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      max-width: 560px;
+      margin: 40px auto;
+      padding: 0 16px;
+      font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    p.hint { margin-top: 0; color: #6b7280; }
+    label { display: block; margin-top: 16px; font-weight: 600; }
+    input, select {
+      box-sizing: border-box;
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font: inherit;
+    }
+    small { display: block; margin-top: 4px; color: #6b7280; font-weight: normal; }
+    .actions { display: flex; gap: 10px; margin-top: 24px; }
+    button {
+      padding: 8px 16px;
+      border: 1px solid #16a34a;
+      border-radius: 6px;
+      background: #16a34a;
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.secondary { background: transparent; color: #16a34a; }
+    #status { margin-top: 16px; min-height: 1.6em; }
+    #status.error { color: #dc2626; }
+    #status.ok { color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h1>Page Translator 设置</h1>
+  <p class="hint">填好 API Key 后，在任意网页点工具栏图标（或按 Alt+T）即可翻译。</p>
+
+  <label for="apiKey">API Key
+    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-...">
+    <small>只保存在本机浏览器里，不会同步到账号。DeepSeek 的 Key 在 platform.deepseek.com 申请。</small>
+  </label>
+
+  <label for="baseUrl">接口地址
+    <input id="baseUrl" type="url">
+    <small>默认 DeepSeek。也可以填其他兼容 OpenAI 格式的地址（会请求访问该网站的权限）。</small>
+  </label>
+
+  <label for="model">模型
+    <input id="model" type="text">
+    <small>默认 deepseek-chat。</small>
+  </label>
+
+  <label for="targetLang">译文语言
+    <select id="targetLang">
+      <option value="简体中文">简体中文</option>
+      <option value="繁體中文">繁體中文</option>
+    </select>
+  </label>
+
+  <div class="actions">
+    <button id="save">保存</button>
+    <button id="test" class="secondary">测试连接</button>
+  </div>
+  <div id="status"></div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

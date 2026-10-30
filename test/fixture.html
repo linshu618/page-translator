@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Translator fixture</title>
+  <style>
+    body { max-width: 680px; margin: 24px auto; font: 16px/1.6 Georgia, serif; }
+    .spacer { height: 3000px; }
+  </style>
+</head>
+<body>
+  <header><nav><a href="#">Home</a> <a href="#">About this site</a></nav></header>
+  <main>
+    <article>
+      <header><h1 id="title">Shipping a small tool in one weekend</h1></header>
+      <p id="p1">Most side projects fail because nobody hears about them, not because the code is bad.</p>
+      <p id="p2">Talk to ten potential users before writing a single line of code.</p>
+      <ul>
+        <li id="li1">Write the landing page first.</li>
+        <li id="li2"><p id="li2p">Charge money from day one.</p></li>
+      </ul>
+      <p id="zh">这一段本来就是中文，插件应该跳过它，不要重复翻译。</p>
+      <pre><code id="code">npm install --save something</code></pre>
+      <div class="spacer"></div>
+      <p id="far">This paragraph sits far below the fold and should only be translated after scrolling.</p>
+    </article>
+  </main>
+  <footer><p id="foot">Copyright notice in the footer that should be skipped.</p></footer>
+  <script>
+    setTimeout(() => {
+      const p = document.createElement("p");
+      p.id = "dynamic";
+      p.textContent = "This paragraph was added later by JavaScript, like an infinite feed.";
+      document.querySelector("article").insertBefore(p, document.querySelector(".spacer"));
+    }, 1500);
+  </script>
+</body>
+</html>
