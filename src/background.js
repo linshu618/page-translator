@@ -3,6 +3,7 @@ import { getSettings } from "./settings.js";
 import { buildMessages, parseTranslations, looksBad } from "./prompt.js";
 
 const REQUEST_TIMEOUT_MS = 60000;
+const pendingToggles = new Map();
 
 class TranslateError extends Error {
   constructor(message, fatal = false) {
@@ -11,27 +12,55 @@ class TranslateError extends Error {
   }
 }
 
-async function toggleTab(tabId) {
+function setActionState(tabId, active) {
+  const tab = tabId === undefined ? {} : { tabId };
+  return Promise.all([
+    chrome.action.setBadgeText({ ...tab, text: active ? "开" : "关" }),
+    chrome.action.setBadgeBackgroundColor({ ...tab, color: active ? "#15803d" : "#475569" }),
+    chrome.action.setTitle({
+      ...tab,
+      title: active ? "翻译已开启 · 点击切回原文（Alt+T）" : "翻译已关闭 · 点击开启（Alt+T）"
+    })
+  ]);
+}
+
+chrome.runtime.onInstalled.addListener(() => setActionState(undefined, false));
+chrome.runtime.onStartup.addListener(() => setActionState(undefined, false));
+
+async function toggleTranslation(tabId) {
   const settings = await getSettings();
   if (settings.apiKey === "") {
     chrome.runtime.openOptionsPage();
     return;
   }
   try {
-    const [{ result: injected }] = await chrome.scripting.executeScript({
+    const [{ documentId, result }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => Boolean(window.__pageTranslator)
+      func: () => window.__pageTranslator?.toggle()
     });
-    if (injected) {
-      await chrome.scripting.executeScript({ target: { tabId }, func: () => window.__pageTranslator.toggle() });
-      return;
+    let active = result;
+    if (typeof active !== "boolean") {
+      const target = { tabId, documentIds: [documentId] };
+      await chrome.scripting.insertCSS({ target, files: ["src/content.css"] });
+      const [injected] = await chrome.scripting.executeScript({ target, files: ["src/content.js"] });
+      active = injected.result;
     }
-    await chrome.scripting.insertCSS({ target: { tabId }, files: ["src/content.css"] });
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["src/content.js"] });
+    await setActionState(tabId, active);
   } catch (err) {
     // chrome://、扩展商店等页面不允许注入
     await chrome.action.setBadgeText({ tabId, text: "×" });
     await chrome.action.setTitle({ tabId, title: `这个页面不能翻译：${err.message}` });
+  }
+}
+
+async function toggleTab(tabId) {
+  const previous = pendingToggles.get(tabId);
+  const next = (previous ?? Promise.resolve()).catch(() => {}).then(() => toggleTranslation(tabId));
+  pendingToggles.set(tabId, next);
+  try {
+    await next;
+  } finally {
+    if (pendingToggles.get(tabId) === next) pendingToggles.delete(tabId);
   }
 }
 

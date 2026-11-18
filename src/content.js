@@ -2,8 +2,7 @@
 // 再次点击图标时在“双语对照”和“只看原文”之间切换。
 (() => {
   if (window.__pageTranslator) {
-    window.__pageTranslator.toggle();
-    return;
+    return window.__pageTranslator.toggle();
   }
 
   const GENERIC_BLOCKS = "p, h1, h2, h3, h4, h5, h6, li, blockquote, figcaption, dt, dd, td, th";
@@ -15,6 +14,7 @@
   ].join(", ");
   const SITE_BLOCKS = { "x.com": X_BLOCKS, "twitter.com": X_BLOCKS };
   const BLOCKS = SITE_BLOCKS[location.hostname.replace(/^(www|mobile)\./, "")] || GENERIC_BLOCKS;
+  const READING_BLOCKS = `${BLOCKS}, img, video, iframe`;
   const ALWAYS_SKIP = [
     "nav", "aside", "button", "pre", "code", "kbd", "script", "style", "noscript",
     "textarea", "select", "svg", "[contenteditable='true']", "[role='navigation']",
@@ -26,12 +26,12 @@
   const CONCURRENCY = 3;
 
   const cache = new Map(); // 原文 -> 译文；X 等站点重绘 DOM 后可直接补回，不再请求
-  const observed = new WeakSet();
   const queue = [];
-  let active = true;
+  let observed = new WeakSet();
+  let active = false;
   let inflight = 0;
   let runningBatches = 0;
-  let failedCount = 0;
+  let newFailures = 0;
   let fatalError = null;
   let scanTimer = null;
   let hideTimer = null;
@@ -84,14 +84,13 @@
   }
 
   function markFailed(item) {
-    failedCount += 1;
+    if (active) newFailures += 1;
     item.el.dataset.ptState = "failed";
     item.span.className = "pt-translation pt-failed";
     item.span.textContent = "翻译失败，点击重试";
     item.span.onclick = (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      failedCount -= 1;
       fatalError = null;
       item.span.className = "pt-translation pt-loading";
       item.span.textContent = "翻译中…";
@@ -129,6 +128,7 @@
   }
 
   function pump() {
+    if (active === false) return;
     if (fatalError !== null) {
       queue.splice(0).forEach(markFailed);
       updateToast();
@@ -162,7 +162,7 @@
       } else {
         if (res && res.fatal) fatalError = res.error;
         batch.forEach(markFailed);
-        if (res && res.fatal === false) showToast(res.error, false);
+        if (active && res && res.fatal === false) showToast(res.error, false);
       }
     } catch (err) {
       // 扩展被重新加载后，旧页面脚本与后台的连接会失效
@@ -202,7 +202,6 @@
       observed.add(el);
       io.observe(el);
     }
-    updateToast();
   }
 
   const mo = new MutationObserver(() => {
@@ -242,16 +241,17 @@
   }
 
   function updateToast() {
-    if (active === false) return;
     if (fatalError !== null) {
+      newFailures = 0;
       showToast(fatalError, true);
       return;
     }
     const pending = queue.length + inflight;
     if (pending > 0) {
       showToast(`翻译中… 剩余 ${pending} 段`, false);
-    } else if (failedCount > 0) {
-      showToast(`翻译完成，${failedCount} 段失败（点击红字重试）`, false);
+    } else if (newFailures > 0) {
+      showToast(`翻译完成，${newFailures} 段失败（点击红字重试）`, false);
+      newFailures = 0;
       hideToast(4000);
     } else if (toast && toast.style.display !== "none") {
       showToast("翻译完成", false);
@@ -261,30 +261,65 @@
 
   // ---------- 开关 ----------
 
+  function findReadingAnchor() {
+    let fallback = null;
+    for (const [x, y] of [[0.5, 1 / 3], [1 / 3, 1 / 3], [2 / 3, 1 / 3], [0.5, 0.5], [0.5, 2 / 3]]) {
+      const hit = document.elementFromPoint(innerWidth * x, innerHeight * y);
+      if (!hit || hit === document.body || hit === document.documentElement || hit.closest("#pt-toast")) continue;
+      const original = hit.closest(".pt-translation")?.parentElement ?? hit;
+      const block = original.closest(READING_BLOCKS);
+      if (block) return block;
+      fallback ??= original;
+    }
+    return fallback;
+  }
+
+  function setTranslationVisibility(visible) {
+    const root = document.documentElement;
+    if (root.classList.contains("pt-hidden") === !visible) return;
+
+    // 译文会改变上方内容的高度，保持正在读的原文在屏幕上的位置。
+    const anchor = findReadingAnchor();
+    const top = anchor?.getBoundingClientRect().top;
+    root.classList.toggle("pt-hidden", !visible);
+    if (!anchor) return;
+
+    for (let el = anchor.parentElement; el && el !== document.scrollingElement; el = el.parentElement) {
+      if (/^(auto|scroll|overlay)$/.test(getComputedStyle(el).overflowY)) {
+        el.scrollBy({ top: anchor.getBoundingClientRect().top - top, behavior: "instant" });
+      }
+    }
+    window.scrollBy({ top: anchor.getBoundingClientRect().top - top, behavior: "instant" });
+  }
+
   function start() {
     active = true;
-    document.documentElement.classList.remove("pt-hidden");
+    setTranslationVisibility(true);
     mo.observe(document.body, { childList: true, subtree: true });
-    showToast("正在查找正文…", false);
     scan();
-    updateToast();
-    if (queue.length + inflight === 0) hideToast(1500);
+    if (queue.length > 0) pump();
   }
 
   function stop() {
     active = false;
-    document.documentElement.classList.add("pt-hidden");
     mo.disconnect();
-    showToast("已切换为原文，再点一次显示译文", false);
-    hideToast(1500);
+    io.disconnect();
+    observed = new WeakSet();
+    clearTimeout(scanTimer);
+    clearTimeout(hideTimer);
+    newFailures = 0;
+    if (toast) toast.style.display = "none";
+    setTranslationVisibility(false);
   }
 
   window.__pageTranslator = {
     toggle() {
       if (active) stop();
       else start();
+      return active;
     }
   };
 
   start();
+  return active;
 })();

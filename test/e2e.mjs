@@ -53,7 +53,7 @@ try {
       const segments = JSON.parse(body.messages[1].content).segments;
       globalThis.__requests.push({ url, auth: init.headers.Authorization, model: body.model, segments });
       if (globalThis.__mockStatus !== 200) return new Response("{}", { status: globalThis.__mockStatus });
-      let translations = segments.map((s) => "【译】" + s);
+      let translations = segments.map((s) => s.startsWith("An intentionally untranslated") ? "" : "【译】" + s);
       if (segments.length > 1 && segments.some((s) => s.includes("Charge money"))) translations = translations.slice(1);
       const content = JSON.stringify({ translations });
       return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
@@ -68,8 +68,14 @@ try {
       await self.toggleTab(tab.id);
     }, pageUrl);
   const tr = (id) => page.locator(`#${id} > .pt-translation`);
+  const badge = (url = pageUrl) => sw.evaluate(async (u) => {
+    const [tab] = await chrome.tabs.query({ url: u });
+    return chrome.action.getBadgeText({ tabId: tab.id });
+  }, url);
 
+  check("初始工具栏徽标为关", (await badge()) === "关");
   await toggle();
+  check("开启后工具栏徽标为开", (await badge()) === "开");
   await page.waitForSelector("#p1 > .pt-translation:not(.pt-loading)", { timeout: 10000 });
 
   check("段落被翻译", (await tr("p1").textContent()).startsWith("【译】Most side projects"));
@@ -94,11 +100,34 @@ try {
   await page.waitForSelector("#far > .pt-translation:not(.pt-loading)", { timeout: 5000 });
   check("滚动到远处段落后翻译", (await tr("far").count()) === 1);
 
+  // 模拟关闭滚动锚定的网页，以及在阅读位置附近出现的单段失败。
+  await page.addStyleTag({ content: "html { overflow-anchor: none; scroll-behavior: smooth }" });
+  await page.locator("#far").evaluate((el) => {
+    el.insertAdjacentHTML("afterend", '<p id="failed">An intentionally untranslated paragraph.</p><div class="spacer"></div>');
+    window.scrollBy({ top: el.getBoundingClientRect().top - Math.round(innerHeight / 3) + 5, behavior: "instant" });
+  });
+  const toast = page.locator("#pt-toast");
+  await page.locator("#failed > .pt-failed").waitFor();
+  check("新失败显示失败提示", (await toast.textContent()).includes("1 段失败"));
+  const farTop = () => page.locator("#far").evaluate((el) => el.getBoundingClientRect().top);
+  const readingPosition = await farTop();
+
   await toggle();
   check("再点一次切回原文", (await tr("p1").isVisible()) === false);
+  check("关闭后工具栏徽标为关", (await badge()) === "关");
+  const originalReadingPosition = await farTop();
+  check("隐藏译文后保持阅读位置", Math.abs(originalReadingPosition - readingPosition) <= 1);
   await toggle();
   check("第三次点击恢复译文", await tr("p1").isVisible());
+  check("恢复译文后保持阅读位置", Math.abs((await farTop()) - originalReadingPosition) <= 1);
+  check("恢复译文时不重复弹出旧失败", (await toast.isVisible()) === false);
+  check("旧失败仍显示段落内重试入口", await page.locator("#failed > .pt-failed").isVisible());
   check("切换不会重复插入译文", (await page.locator("#p1 .pt-translation").count()) === 1);
+
+  const other = await context.newPage();
+  await other.goto(`${pageUrl}?other`);
+  check("翻译状态按标签页独立显示", (await badge()) === "开" && (await badge(other.url())) === "关");
+  await other.close();
 
   // Key 无效：提示并给出打开设置的按钮
   await sw.evaluate(() => { globalThis.__mockStatus = 401; });
@@ -120,6 +149,10 @@ try {
   await page.bringToFront();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: join(root, "test", "screenshot.png") });
+  await page.reload();
+  check("刷新后工具栏徽标恢复为关", (await badge()) === "关");
+  await Promise.all([toggle(), toggle()]);
+  check("快速点击两次后徽标与页面均为关闭", (await badge()) === "关" && (await page.locator("html.pt-hidden").count()) === 1);
 } catch (err) {
   failures += 1;
   console.error("ERROR", err);

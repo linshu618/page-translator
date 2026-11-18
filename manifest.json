@@ -11,7 +11,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "翻译当前页面（再点一次切换原文）",
+    "default_title": "翻译已关闭 · 点击开启（Alt+T）",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
